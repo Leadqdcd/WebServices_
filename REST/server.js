@@ -98,9 +98,10 @@ app.post("/products", async (req, res) => {
 
     try {
         const result = await db.collection("products").insertOne({ name, about, price });
-        res.status(201).json(result.ops[0]);
+        res.status(201).json({ _id: result.insertedId, name, about, price });
     } catch (error) {
         res.status(500).json({ message: "Erreur lors de la création du produit", error });
+        console.error(error);
     }
 });
 
