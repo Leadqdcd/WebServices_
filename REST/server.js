@@ -85,25 +85,29 @@ app.get("/products", async (req, res) => {
     }
 });
 
+
 // POST products/ - Crée un nouveau produit
 app.post("/products", async (req, res) => {
-    const { name, about, price } = req.body;
+    const result = CreateProductSchema.safeParse(req.body);
 
-    // Validation du corps de la requête avec Zod
-    try {
-        CreateProductSchema.parse({ name, about, price });
-    } catch (error) {
-        return res.status(400).json({ message: "Données invalides", error: error.errors });
+    // Vérification du succès de la validation
+    if (!result.success) {
+        return res.status(400).json({ message: "Données invalides", errors: result.error.errors });
     }
 
+    const { name, about, price } = result.data;
+
     try {
-        const result = await db.collection("products").insertOne({ name, about, price });
-        res.status(201).json({ _id: result.insertedId, name, about, price });
+        const product = await db.collection("products").insertOne({ name, about, price });
+
+        res.status(201).json({ _id: product.insertedId, name, about, price });
+        console.log("Produit créé avec succès");
     } catch (error) {
-        res.status(500).json({ message: "Erreur lors de la création du produit", error });
-        console.error(error);
+        console.error("Erreur lors de la création du produit :", error);
+        res.status(500).json({ message: "Erreur serveur", error });
     }
 });
+
 
 // DELETE products/:id - Supprime un produit par son ID
 app.delete("/products/:id", async (req, res) => {
