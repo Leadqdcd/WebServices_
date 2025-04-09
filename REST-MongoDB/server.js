@@ -1,5 +1,5 @@
 const express = require("express");
-const { MongoClient } = require("mongodb");
+const { MongoClient, ObjectId } = require("mongodb");
 const { z } = require("zod");
 
 const app = express();
@@ -10,7 +10,7 @@ let db;
 app.use(express.json());
 
 // =====================================================
-// Schemas pour les opérations sur la collection "documents" (démo)
+// Schemas pour la collection "documents" (démo)
 // =====================================================
 const DocumentSchema = z.object({
   a: z.number()
@@ -22,7 +22,7 @@ const DocumentSchema = z.object({
 
 // Schéma complet pour un produit stocké en base
 const ProductSchema = z.object({
-  _id: z.string(),       // Géré automatiquement par MongoDB si absent
+  _id: z.string(),       // Généré automatiquement par MongoDB
   name: z.string(),
   about: z.string(),
   price: z.number().positive(),
@@ -33,15 +33,12 @@ const CreateProductSchema = ProductSchema.omit({ _id: true });
 
 // Schéma complet pour une catégorie stockée en base
 const CategorySchema = z.object({
-  _id: z.string(),       // Géré automatiquement par MongoDB
+  _id: z.string(),       // Généré automatiquement par MongoDB
   name: z.string(),
 });
 // Schéma pour la création d'une catégorie : on omet "_id"
 const CreateCategorySchema = CategorySchema.omit({ _id: true });
 
-// =====================================================
-// Connexion à MongoDB et configuration de l'application
-// =====================================================
 client.connect().then(async () => {
   db = client.db("myDB");
 
@@ -75,14 +72,14 @@ client.connect().then(async () => {
   // -----------------------------------------------------
 
   // -----------------------------------------------------
-  // Routes pour gérer les produits et les catégories
+  // Routes pour gérer les catégories et les produits
   // -----------------------------------------------------
 
-  // Route pour créer une catégorie en utilisant safeParse
+  // Route pour créer une catégorie avec safeParse
   app.post("/categories", async (req, res) => {
     const result = await CreateCategorySchema.safeParse(req.body);
  
-    // Si la validation Zod réussit, insérer la catégorie dans la collection
+    // Si Zod valide avec succès, on insère la catégorie dans la collection
     if (result.success) {
       const { name } = result.data;
       const ack = await db.collection("categories").insertOne({ name });
@@ -92,40 +89,49 @@ client.connect().then(async () => {
     }
   });
 
-  // Route pour créer un produit en utilisant safeParse
-  // Le produit contient désormais un tableau d'identifiants de catégories
+  // Route pour créer un produit avec safeParse et conversion des categoryIds en ObjectId
   app.post("/products", async (req, res) => {
     const result = await CreateProductSchema.safeParse(req.body);
+ 
+    // Si la validation réussit, on convertit les strings des IDs en ObjectId
     if (result.success) {
       const { name, about, price, categoryIds } = result.data;
+      const categoryObjectIds = categoryIds.map((id) => new ObjectId(id));
+ 
       const ack = await db
         .collection("products")
-        .insertOne({ name, about, price, categoryIds });
-      res.send({ _id: ack.insertedId, name, about, price, categoryIds });
+        .insertOne({ name, about, price, categoryIds: categoryObjectIds });
+ 
+      res.send({
+        _id: ack.insertedId,
+        name,
+        about,
+        price,
+        categoryIds: categoryObjectIds,
+      });
     } else {
       res.status(400).send(result);
     }
   });
 
-  // Route d'agrégation pour joindre les produits et les catégories associées
-  app.get("/products-with-categories", async (req, res) => {
-    try {
-      // L'agrégation via $lookup associe chaque produit aux catégories dont les IDs sont présents dans product.categoryIds
-      const aggregatedProducts = await productsCollection.aggregate([
+  // Route GET pour récupérer les produits avec leurs catégories via agrégation
+  app.get("/products", async (req, res) => {
+    const result = await db
+      .collection("products")
+      .aggregate([
+        { $match: {} },
         {
           $lookup: {
             from: "categories",
             localField: "categoryIds",
             foreignField: "_id",
-            as: "categories"
-          }
-        }
-      ]).toArray();
-      res.status(200).json(aggregatedProducts);
-    } catch (error) {
-      console.error("Erreur lors de l'agrégation :", error);
-      res.status(500).json({ error: error.message });
-    }
+            as: "categories",
+          },
+        },
+      ])
+      .toArray();
+ 
+    res.send(result);
   });
 
   // -----------------------------------------------------
